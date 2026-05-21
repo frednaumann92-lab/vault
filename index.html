@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Secure Intelligence Vault</title>
+
+<style>
+body{
+  background:radial-gradient(circle,#020606,#000);
+  color:#00ffcc;
+  font-family:Consolas,monospace;
+  text-align:center;
+  padding:40px;
+  margin:0;
+}
+
+#container{
+  max-width:900px;
+  margin:auto;
+  border:2px solid #00ffcc44;
+  padding:30px;
+  background:#010808;
+  box-shadow:0 0 35px #00ffcc22;
+}
+
+h1,h2{
+  letter-spacing:3px;
+  text-shadow:0 0 14px #00ffcc88;
+}
+
+input,textarea,button{
+  width:85%;
+  background:#010505;
+  color:#00ffcc;
+  border:1px solid #00ffcc55;
+  padding:12px;
+  margin:10px;
+  font-size:16px;
+  font-family:inherit;
+}
+
+textarea{
+  height:220px;
+  resize:none;
+}
+
+button{
+  cursor:pointer;
+}
+
+button:hover{
+  background:#00ffcc22;
+  box-shadow:0 0 12px #00ffcc66;
+}
+
+.hidden{display:none;}
+
+.alert{
+  color:#ff4444;
+  animation:blink 1s infinite;
+}
+
+@keyframes blink{
+  0%{opacity:.4}
+  50%{opacity:1}
+  100%{opacity:.4}
+}
+
+.pinbox{
+  font-size:32px;
+  letter-spacing:15px;
+  margin:20px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="container">
+
+<!-- WELCOME -->
+<div id="welcome">
+<h1>🛡 SECURE INTELLIGENCE SYSTEM</h1>
+<h2>TOP SECRET ACCESS</h2>
+<p>Agent 362</p>
+<button onclick="goPin()">ENTER</button>
+</div>
+
+<!-- PIN -->
+<div id="pinScreen" class="hidden">
+<h2>ENTER SECURITY PIN</h2>
+<div class="pinbox" id="pinDisplay">____</div>
+<button onclick="checkPin()">VERIFY</button>
+<div id="pinStatus"></div>
+</div>
+
+<!-- LOGIN -->
+<div id="login" class="hidden">
+<h2>AUTHENTICATION</h2>
+<input type="password" id="pass" placeholder="Master Password">
+<button onclick="unlock()">VERIFY</button>
+<div id="status"></div>
+</div>
+
+<!-- VAULT -->
+<div id="vault" class="hidden">
+<h2>DATA VAULT</h2>
+<textarea id="data"></textarea>
+<button onclick="save()">SAVE</button>
+<button onclick="lock()">LOCK</button>
+<div id="status2"></div>
+</div>
+
+</div>
+
+<script>
+
+/* CONFIG */
+const PIN = "3629";
+const MASTER_PASSWORD = "PDUser362";
+const PANIC = "WIPE362-ALPHA";
+const LOCK_TIME = 3*60*1000;
+
+/* STATE */
+let key = null;
+let timer = null;
+let pinInput = "";
+
+/* SECURITY STORAGE */
+let fails = Number(localStorage.getItem("fails") || 0);
+let lockUntil = Number(localStorage.getItem("lockUntil") || 0);
+let lockTimer = null;
+
+
+/* ================= AUTO LOGOUT ================= */
+
+function resetTimer(){
+
+  if(timer) clearTimeout(timer);
+
+  timer = setTimeout(()=>{
+    alert("Session expired");
+    lock();
+  }, LOCK_TIME);
+}
+
+
+/* ================= KEYBOARD ================= */
+
+document.addEventListener("mousemove", resetTimer);
+document.addEventListener("keydown", handleKeys);
+
+function handleKeys(e){
+
+  resetTimer();
+
+  /* PIN */
+  if(!pinScreen.classList.contains("hidden")){
+
+    if(e.key >= "0" && e.key <= "9") pressKey(e.key);
+    else if(e.key === "Backspace"){
+      pinInput="";
+      updatePin();
+    }
+    else if(e.key === "Enter") checkPin();
+
+    return;
+  }
+
+  /* PASSWORD */
+  if(!login.classList.contains("hidden")){
+    if(e.key === "Enter") unlock();
+  }
+}
+
+
+/* ================= FLOW ================= */
+
+function goPin(){
+
+  welcome.classList.add("hidden");
+  pinScreen.classList.remove("hidden");
+
+  updatePin();
+  startLockCheck();
+}
+
+
+/* ================= PIN ================= */
+
+function pressKey(num){
+
+  if(pinInput.length >= 4) return;
+
+  pinInput += num;
+  updatePin();
+}
+
+
+function updatePin(){
+
+  let out="";
+
+  for(let i=0;i<4;i++){
+    out += pinInput[i] ? "●" : "_";
+  }
+
+  pinDisplay.innerText = out;
+}
+
+
+function checkPin(){
+
+  if(pinInput === PIN){
+
+    pinInput = "";
+
+    pinScreen.classList.add("hidden");
+    login.classList.remove("hidden");
+
+    updateStatus();
+
+  }else{
+
+    pinStatus.innerText="INVALID PIN";
+    pinStatus.classList.add("alert");
+
+    pinInput="";
+    updatePin();
+  }
+}
+
+
+/* ================= STATUS ================= */
+
+function startLockCheck(){
+
+  if(lockTimer) clearInterval(lockTimer);
+
+  lockTimer = setInterval(updateStatus,1000);
+
+  updateStatus();
+}
+
+
+function updateStatus(){
+
+  const now = Date.now();
+  const passBox = document.getElementById("pass");
+
+  if(now < lockUntil){
+
+    const sec = Math.ceil((lockUntil-now)/1000);
+
+    status.classList.add("alert");
+    status.innerText = "LOCKED: " + sec + "s";
+
+    passBox.disabled = true;
+
+  }else{
+
+    status.classList.remove("alert");
+    status.innerText = "Attempts: " + fails;
+
+    passBox.disabled = false;
+  }
+}
+
+
+/* ================= CRYPTO ================= */
+
+async function getKey(pass,salt){
+
+  const enc = new TextEncoder();
+
+  const base = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(pass),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name:"PBKDF2",
+      salt: enc.encode(salt),
+      iterations:200000,
+      hash:"SHA-256"
+    },
+    base,
+    {name:"AES-GCM",length:256},
+    false,
+    ["encrypt","decrypt"]
+  );
+}
+
+
+/* ================= LOGIN ================= */
+
+async function unlock(){
+
+  const pass = document.getElementById("pass").value;
+  const now = Date.now();
+
+  if(now < lockUntil){
+    updateStatus();
+    return;
+  }
+
+  if(!pass){
+    status.innerText="Key required";
+    return;
+  }
+
+  /* WRONG PASSWORD */
+  if(pass !== MASTER_PASSWORD){
+
+    status.innerText="ACCESS DENIED";
+    failAttempt();
+    return;
+  }
+
+  /* PANIC */
+  if(pass === PANIC){
+
+    localStorage.clear();
+    alert("VAULT ERASED");
+    location.reload();
+    return;
+  }
+
+  status.innerText="Authenticating...";
+
+  key = await getKey(pass,"vault-362");
+
+  const saved = localStorage.getItem("vault");
+
+  if(saved){
+
+    try{
+      const obj = JSON.parse(saved);
+      data.value = await decrypt(obj);
+    }
+    catch{
+      status.innerText="DECRYPT ERROR";
+      failAttempt();
+      return;
+    }
+  }
+
+  /* SUCCESS */
+  fails = 0;
+  lockUntil = 0;
+
+  localStorage.removeItem("fails");
+  localStorage.removeItem("lockUntil");
+
+  login.classList.add("hidden");
+  vault.classList.remove("hidden");
+
+  status2.innerText="SECURE SESSION ACTIVE";
+
+  if(lockTimer) clearInterval(lockTimer);
+
+  resetTimer();
+}
+
+
+/* ================= FAIL ================= */
+
+function failAttempt(){
+
+  fails++;
+
+  let wait = 0;
+
+  if(fails >= 7) wait = 10*60*1000;
+  else if(fails >= 5) wait = 2*60*1000;
+  else if(fails >= 3) wait = 30*1000;
+
+  if(wait > 0){
+    lockUntil = Date.now() + wait;
+  }
+
+  localStorage.setItem("fails", fails);
+  localStorage.setItem("lockUntil", lockUntil);
+
+  startLockCheck();
+}
+
+
+/* ================= ENCRYPT ================= */
+
+async function encrypt(text){
+
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  const buf = await crypto.subtle.encrypt(
+    {name:"AES-GCM",iv},
+    key,
+    new TextEncoder().encode(text)
+  );
+
+  return {iv:[...iv], data:[...new Uint8Array(buf)]};
+}
+
+
+async function decrypt(obj){
+
+  const dec = await crypto.subtle.decrypt(
+    {name:"AES-GCM",iv:new Uint8Array(obj.iv)},
+    key,
+    new Uint8Array(obj.data)
+  );
+
+  return new TextDecoder().decode(dec);
+}
+
+
+/* ================= SAVE ================= */
+
+async function save(){
+
+  const enc = await encrypt(data.value);
+
+  localStorage.setItem("vault",JSON.stringify(enc));
+
+  status2.innerText =
+    "Secured @ " + new Date().toLocaleTimeString();
+
+  resetTimer();
+}
+
+
+/* ================= LOCK ================= */
+
+function lock(){
+
+  key = null;
+  data.value = "";
+
+  vault.classList.add("hidden");
+  login.classList.remove("hidden");
+
+  startLockCheck();
+
+  if(timer) clearTimeout(timer);
+}
+
+</script>
+
+</body>
+</html>
